@@ -52,6 +52,7 @@ function TaskInput({
   disabled = false,
   placeholder = 'Task',
   allowCreate = true,
+  inputRef,
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const q = value.trim().toLowerCase();
@@ -71,6 +72,7 @@ function TaskInput({
   return (
     <div className="task-input-wrap">
       <input
+        ref={inputRef}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onFocus={() => setIsOpen(true)}
@@ -221,6 +223,7 @@ function LogScreen({ supabase, tasks, refreshTasks }) {
   const [editingMinutes, setEditingMinutes] = useState('');
 
   const minutesRef = useRef(null);
+  const taskInputRef = useRef(null);
 
   async function loadLogs(targetDate) {
     if (!supabase) return;
@@ -342,7 +345,11 @@ function LogScreen({ supabase, tasks, refreshTasks }) {
       setTone('success');
       setMessage('Saved.');
       await loadLogs(date);
-      minutesRef.current?.focus();
+      if (keepTask) {
+        minutesRef.current?.focus();
+      } else {
+        taskInputRef.current?.focus();
+      }
     } catch (err) {
       setTone('error');
       setMessage(err.message || 'Failed to save.');
@@ -448,6 +455,7 @@ function LogScreen({ supabase, tasks, refreshTasks }) {
           <div className="form-row">
             <TaskInput
               tasks={tasks}
+              inputRef={taskInputRef}
               value={taskQuery}
               onChange={(next) => {
                 setTaskQuery(next);
@@ -483,12 +491,12 @@ function LogScreen({ supabase, tasks, refreshTasks }) {
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault();
-                  addLog({ keepTask: true });
+                  addLog({ keepTask: false });
                 }
               }}
               placeholder="Minutes"
             />
-            <button type="button" onClick={() => addLog({ keepTask: true })} disabled={saving}>
+            <button type="button" onClick={() => addLog({ keepTask: false })} disabled={saving}>
               {saving ? 'Saving...' : 'Add'}
             </button>
           </div>
