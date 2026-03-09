@@ -244,6 +244,20 @@ function LogScreen({ supabase, tasks, refreshTasks }) {
     loadLogs(date);
   }, [date, supabase]);
 
+  const grouped = useMemo(() => {
+    const map = new Map();
+    for (const row of logs) {
+      const key = row.tasks?.name || 'Unknown task';
+      map.set(key, (map.get(key) || 0) + row.minutes);
+    }
+    return [...map.entries()].sort((a, b) => {
+      if (b[1] !== a[1]) return b[1] - a[1];
+      return a[0].localeCompare(b[0], undefined, { sensitivity: 'base' });
+    });
+  }, [logs]);
+
+  const total = useMemo(() => grouped.reduce((sum, [, mins]) => sum + mins, 0), [grouped]);
+
   function validateMinutes(value) {
     const parsed = Number(value);
     if (!Number.isInteger(parsed) || parsed <= 0 || parsed > 10000) {
@@ -483,97 +497,38 @@ function LogScreen({ supabase, tasks, refreshTasks }) {
 
           {loading ? <p>Loading...</p> : null}
 
-          <div className="daily-table-wrap">
-            <table className="daily-table log-table">
-              <thead>
-                <tr>
-                  <th>Item</th>
-                  <th>Time</th>
-                </tr>
-              </thead>
-              <tbody>
-                {logs.map((row) => {
-                  if (editingId === row.id) {
-                    return (
-                      <tr key={row.id}>
-                        <td>
-                          <div className="log-edit-main">
-                            <input type="date" value={editingDate} onChange={(e) => setEditingDate(e.target.value)} />
-                            <TaskInput
-                              tasks={tasks}
-                              value={editingTaskQuery}
-                              onChange={(next) => {
-                                setEditingTaskQuery(next);
-                                setEditingTask(null);
-                              }}
-                              onSelect={(task) => {
-                                setEditingTask(task);
-                                setEditingTaskQuery(task.name);
-                              }}
-                              onCreate={async (name) => {
-                                try {
-                                  const task = await createTaskIfNeeded(name);
-                                  if (task) {
-                                    setEditingTask(task);
-                                    setEditingTaskQuery(task.name);
-                                  }
-                                } catch (err) {
-                                  setTone('error');
-                                  setMessage(err.message || 'Failed to create task.');
-                                }
-                              }}
-                            />
-                          </div>
-                        </td>
-                        <td>
-                          <div className="log-edit-side">
-                            <input
-                              type="number"
-                              min="1"
-                              max="10000"
-                              step="1"
-                              value={editingMinutes}
-                              onChange={(e) => setEditingMinutes(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  e.preventDefault();
-                                  saveEdit();
-                                }
-                              }}
-                            />
-                            <button type="button" onClick={saveEdit}>
-                              Save
-                            </button>
-                            <button type="button" className="ghost" onClick={() => setEditingId('')}>
-                              Cancel
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  }
-
-                  return (
-                    <tr key={row.id}>
-                      <td>{row.tasks?.name || 'Unknown task'}</td>
-                      <td>
-                        <div className="log-time-actions">
-                          <span>{row.minutes} min</span>
-                          <div className="row-actions">
-                            <button type="button" className="ghost" onClick={() => startEdit(row)}>
-                              Edit
-                            </button>
-                            <button type="button" className="ghost danger" onClick={() => deleteLog(row.id)}>
-                              Delete
-                            </button>
-                          </div>
-                        </div>
-                      </td>
+          <div className="daily-summary">
+            <div className="subhead">
+              <h3>{formatDate(date)}</h3>
+              <strong>{formatDuration(total)}</strong>
+            </div>
+            {!loading && grouped.length === 0 ? <p className="hint">No entries.</p> : null}
+            {grouped.length > 0 ? (
+              <div className="daily-table-wrap">
+                <table className="daily-table">
+                  <thead>
+                    <tr>
+                      <th>Item</th>
+                      <th>Time</th>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                  </thead>
+                  <tbody>
+                    {grouped.map(([name, mins]) => (
+                      <tr key={name}>
+                        <td>{name}</td>
+                        <td>{formatDuration(mins)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td>Daily total</td>
+                      <td>{formatDuration(total)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            ) : null}
           </div>
         </div>
       </div>
@@ -581,20 +536,26 @@ function LogScreen({ supabase, tasks, refreshTasks }) {
   );
 }
 
-function DailyViewScreen({ supabase }) {
+function DailyViewScreen({ supabase, tasks, refreshTasks }) {
   const [date, setDate] = useState(today());
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [tone, setTone] = useState('normal');
+  const [editingId, setEditingId] = useState('');
+  const [editingTaskQuery, setEditingTaskQuery] = useState('');
+  const [editingTask, setEditingTask] = useState(null);
+  const [editingDate, setEditingDate] = useState('');
+  const [editingMinutes, setEditingMinutes] = useState('');
 
   async function loadLogs(targetDate) {
     if (!supabase) return;
     setLoading(true);
     const { data, error } = await supabase
       .from('time_logs')
-      .select('minutes, tasks (name)')
-      .eq('log_date', targetDate);
+      .select('id, task_id, log_date, minutes, tasks (id, name)')
+      .eq('log_date', targetDate)
+      .order('created_at', { ascending: true });
 
     setLoading(false);
     if (error) {
@@ -610,19 +571,98 @@ function DailyViewScreen({ supabase }) {
     loadLogs(date);
   }, [date, supabase]);
 
-  const grouped = useMemo(() => {
-    const map = new Map();
-    for (const row of logs) {
-      const key = row.tasks?.name || 'Unknown task';
-      map.set(key, (map.get(key) || 0) + row.minutes);
+  function validateMinutes(value) {
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed) || parsed <= 0 || parsed > 10000) {
+      return null;
     }
-    return [...map.entries()].sort((a, b) => {
-      if (b[1] !== a[1]) return b[1] - a[1];
-      return a[0].localeCompare(b[0], undefined, { sensitivity: 'base' });
-    });
-  }, [logs]);
+    return parsed;
+  }
 
-  const total = useMemo(() => grouped.reduce((sum, [, mins]) => sum + mins, 0), [grouped]);
+  async function createTaskIfNeeded(name) {
+    const clean = normalizeName(name);
+    if (!clean) return null;
+    const existing = tasks.find((t) => t.name.toLowerCase() === clean.toLowerCase());
+    if (existing) return existing;
+
+    const { data, error } = await supabase
+      .from('tasks')
+      .insert([{ name: clean }])
+      .select('id, name')
+      .single();
+
+    if (error) {
+      if (error.code === '23505') {
+        await refreshTasks();
+        return tasks.find((t) => t.name.toLowerCase() === clean.toLowerCase()) || null;
+      }
+      throw error;
+    }
+
+    await refreshTasks();
+    return data;
+  }
+
+  async function deleteLog(id) {
+    if (!window.confirm('Delete this entry?')) return;
+    const { error } = await supabase.from('time_logs').delete().eq('id', id);
+    if (error) {
+      setTone('error');
+      setMessage(error.message);
+      return;
+    }
+    await loadLogs(date);
+  }
+
+  function startEdit(row) {
+    setEditingId(row.id);
+    setEditingTask(row.tasks || null);
+    setEditingTaskQuery(row.tasks?.name || '');
+    setEditingDate(row.log_date);
+    setEditingMinutes(String(row.minutes));
+  }
+
+  async function saveEdit() {
+    const validMinutes = validateMinutes(editingMinutes);
+    if (!validMinutes) {
+      setTone('error');
+      setMessage('Minutes must be a positive whole number (1-10000).');
+      return;
+    }
+    if (!editingDate) {
+      setTone('error');
+      setMessage('Date is required.');
+      return;
+    }
+
+    try {
+      const task = editingTask || (await createTaskIfNeeded(editingTaskQuery));
+      if (!task) {
+        setTone('error');
+        setMessage('Task is required.');
+        return;
+      }
+
+      const { error } = await supabase
+        .from('time_logs')
+        .update({
+          task_id: task.id,
+          log_date: editingDate,
+          minutes: validMinutes,
+        })
+        .eq('id', editingId);
+
+      if (error) throw error;
+
+      setEditingId('');
+      setTone('success');
+      setMessage('Updated.');
+      await loadLogs(date);
+    } catch (err) {
+      setTone('error');
+      setMessage(err.message || 'Failed to update.');
+    }
+  }
 
   return (
     <section className="panel">
@@ -638,40 +678,101 @@ function DailyViewScreen({ supabase }) {
 
       <Message text={message} tone={tone} />
       {loading ? <p>Loading...</p> : null}
+      {!loading && logs.length === 0 ? <p className="hint">No entries.</p> : null}
+      {logs.length > 0 ? (
+        <div className="daily-table-wrap">
+          <table className="daily-table log-table">
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th>Time</th>
+              </tr>
+            </thead>
+            <tbody>
+              {logs.map((row) => {
+                if (editingId === row.id) {
+                  return (
+                    <tr key={row.id}>
+                      <td>
+                        <div className="log-edit-main">
+                          <input type="date" value={editingDate} onChange={(e) => setEditingDate(e.target.value)} />
+                          <TaskInput
+                            tasks={tasks}
+                            value={editingTaskQuery}
+                            onChange={(next) => {
+                              setEditingTaskQuery(next);
+                              setEditingTask(null);
+                            }}
+                            onSelect={(task) => {
+                              setEditingTask(task);
+                              setEditingTaskQuery(task.name);
+                            }}
+                            onCreate={async (name) => {
+                              try {
+                                const task = await createTaskIfNeeded(name);
+                                if (task) {
+                                  setEditingTask(task);
+                                  setEditingTaskQuery(task.name);
+                                }
+                              } catch (err) {
+                                setTone('error');
+                                setMessage(err.message || 'Failed to create task.');
+                              }
+                            }}
+                          />
+                        </div>
+                      </td>
+                      <td>
+                        <div className="log-edit-side">
+                          <input
+                            type="number"
+                            min="1"
+                            max="10000"
+                            step="1"
+                            value={editingMinutes}
+                            onChange={(e) => setEditingMinutes(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                saveEdit();
+                              }
+                            }}
+                          />
+                          <button type="button" onClick={saveEdit}>
+                            Save
+                          </button>
+                          <button type="button" className="ghost" onClick={() => setEditingId('')}>
+                            Cancel
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                }
 
-      <div className="daily-summary">
-        <div className="subhead">
-          <h3>{formatDate(date)}</h3>
-          <strong>{formatDuration(total)}</strong>
-        </div>
-        {!loading && grouped.length === 0 ? <p className="hint">No entries.</p> : null}
-        {grouped.length > 0 ? (
-          <div className="daily-table-wrap">
-            <table className="daily-table">
-              <thead>
-                <tr>
-                  <th>Item</th>
-                  <th>Time</th>
-                </tr>
-              </thead>
-              <tbody>
-                {grouped.map(([name, mins]) => (
-                  <tr key={name}>
-                    <td>{name}</td>
-                    <td>{formatDuration(mins)}</td>
+                return (
+                  <tr key={row.id}>
+                    <td>{row.tasks?.name || 'Unknown task'}</td>
+                    <td>
+                      <div className="log-time-actions">
+                        <span>{row.minutes} min</span>
+                        <div className="row-actions">
+                          <button type="button" className="ghost" onClick={() => startEdit(row)}>
+                            Edit
+                          </button>
+                          <button type="button" className="ghost danger" onClick={() => deleteLog(row.id)}>
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    </td>
                   </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr>
-                  <td>Daily total</td>
-                  <td>{formatDuration(total)}</td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        ) : null}
-      </div>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -1186,7 +1287,7 @@ export default function App() {
             className={activeTab === 'daily' ? 'active' : ''}
             onClick={() => setActiveTab('daily')}
           >
-            Daily View
+            Editor
           </button>
           <button
             type="button"
@@ -1232,7 +1333,7 @@ export default function App() {
       ) : null}
 
       {activeTab === 'daily' && !needsSettings ? (
-        <DailyViewScreen supabase={supabase} />
+        <DailyViewScreen supabase={supabase} tasks={tasks} refreshTasks={refreshTasks} />
       ) : null}
 
       {activeTab === 'history' && !needsSettings ? (
