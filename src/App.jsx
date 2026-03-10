@@ -3,7 +3,7 @@ import { getSupabaseClient } from './lib/supabase';
 import { clearSettings, loadSettings, saveSettings } from './lib/settings';
 
 function today() {
-  return new Date().toISOString().slice(0, 10);
+  return toInputDate(new Date());
 }
 
 function currentYear() {
@@ -15,14 +15,26 @@ function currentMonth() {
 }
 
 function shiftDate(dateText, days) {
-  const d = new Date(`${dateText}T00:00:00`);
+  const d = fromInputDate(dateText);
   d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+  return toInputDate(d);
 }
 
 function formatDate(dateText) {
-  const d = new Date(`${dateText}T00:00:00`);
+  const d = fromInputDate(dateText);
   return d.toLocaleDateString();
+}
+
+function fromInputDate(dateText) {
+  const [year, month, day] = dateText.split('-').map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function toInputDate(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 function normalizeName(name) {
