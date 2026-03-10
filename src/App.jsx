@@ -575,7 +575,7 @@ function DailyViewScreen({ supabase, tasks, refreshTasks }) {
       .from('time_logs')
       .select('id, task_id, log_date, minutes, tasks (id, name)')
       .eq('log_date', targetDate)
-      .order('created_at', { ascending: true });
+      .order('created_at', { ascending: false });
 
     setLoading(false);
     if (error) {
