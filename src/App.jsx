@@ -61,6 +61,7 @@ function TaskInput({
   onChange,
   onSelect,
   onCreate,
+  onCommit,
   disabled = false,
   placeholder = 'Task',
   allowCreate = true,
@@ -70,7 +71,7 @@ function TaskInput({
   const q = value.trim().toLowerCase();
   const filtered = useMemo(() => {
     const sorted = [...tasks].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
-    if (!q) return sorted.slice(0, 12);
+    if (!q) return [];
     return sorted.filter((t) => t.name.toLowerCase().includes(q)).slice(0, 12);
   }, [tasks, q]);
 
@@ -79,7 +80,7 @@ function TaskInput({
     [tasks, q]
   );
   const canCreate = allowCreate && q && !exactMatch;
-  const showDropdown = isOpen && !disabled && (filtered.length > 0 || canCreate);
+  const showDropdown = isOpen && !disabled && q && (filtered.length > 0 || canCreate);
 
   return (
     <div className="task-input-wrap">
@@ -93,6 +94,11 @@ function TaskInput({
         }}
         onKeyDown={(e) => {
           if (e.key === 'Escape') setIsOpen(false);
+          if ((e.key === 'Enter' || e.key === 'Tab') && value.trim()) {
+            e.preventDefault();
+            onCommit?.(value);
+            setIsOpen(false);
+          }
         }}
         disabled={disabled}
         placeholder={placeholder}
@@ -272,6 +278,13 @@ function LogScreen({ supabase, tasks, refreshTasks }) {
   }, [logs]);
 
   const total = useMemo(() => grouped.reduce((sum, [, mins]) => sum + mins, 0), [grouped]);
+
+  function syncTaskSelection(name) {
+    const clean = normalizeName(name);
+    const exact = tasks.find((t) => t.name.toLowerCase() === clean.toLowerCase()) || null;
+    setTaskQuery(clean);
+    setSelectedTask(exact);
+  }
 
   function validateMinutes(value) {
     const parsed = Number(value);
@@ -472,6 +485,10 @@ function LogScreen({ supabase, tasks, refreshTasks }) {
               onChange={(next) => {
                 setTaskQuery(next);
                 setSelectedTask(null);
+              }}
+              onCommit={(name) => {
+                syncTaskSelection(name);
+                minutesRef.current?.focus();
               }}
               onSelect={(task) => {
                 setTaskQuery(task.name);
