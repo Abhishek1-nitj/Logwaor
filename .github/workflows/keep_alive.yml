@@ -1,0 +1,50 @@
+name: Keep Supabase Active
+
+on:
+  schedule:
+    - cron: '23 17 * * *'
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-keep-alive
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Query tasks endpoint with anon key
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${SUPABASE_URL:-}" ] || [ -z "${SUPABASE_ANON_KEY:-}" ]; then
+            echo "Missing SUPABASE_URL or SUPABASE_ANON_KEY GitHub secret."
+            exit 1
+          fi
+
+          endpoint="${SUPABASE_URL%/}/rest/v1/tasks?select=id&limit=1"
+
+          http_code="$(curl --silent --show-error --output /tmp/keepalive_response.json \
+            --write-out "%{http_code}" \
+            --header "apikey: ${SUPABASE_ANON_KEY}" \
+            --header "Authorization: Bearer ${SUPABASE_ANON_KEY}" \
+            --header "Accept: application/json" \
+            "$endpoint")"
+
+          if [ "$http_code" != "200" ]; then
+            echo "Supabase keep-alive request failed with HTTP ${http_code}."
+            cat /tmp/keepalive_response.json
+            exit 1
+          fi
+
+          echo "Supabase keep-alive request succeeded with HTTP 200."
